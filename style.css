@@ -117,4 +117,13 @@ body {
       font-size: 0.9rem;
     }
   }
+
+/* Question counter */
+#counter {
+  font-size: 1.2rem;
+  text-align: center;
+  margin: 10px 0;
+  color: #555;
+}
+
   

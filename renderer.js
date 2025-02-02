@@ -141,6 +141,12 @@ function displayQuestion(index) {
   // Render the question text.
   questionDiv.innerHTML = `<h2>${question.questionText}</h2>`;
 
+  // Update the counter element with the current question number and total questions.
+  const counterDiv = document.getElementById("counter");
+  if (counterDiv) {
+    counterDiv.innerHTML = `${currentQuestionIndex + 1} / ${questions.length}`;
+  }
+
   // Create buttons for each answer option.
   question.options.forEach((option, i) => {
     const btn = document.createElement('button');
@@ -194,16 +200,27 @@ function checkAnswer(selected, correct) {
     feedbackDiv.innerHTML = `<p style="color: red;">Incorrect. The correct answer is: ${correct}) ${correctText}</p>`;
   }
 }
+/**
+ * Flag to track whether a file dialog is already open.
+ * This prevents opening multiple dialogs concurrently.
+ */
+let isDialogOpen = false;
 
-// -----------------------------------------------------------------------------
-// Function: selectCSVFile
-//
-// Uses IPC (Inter-Process Communication) to request the main process to
-// open a native file dialog for CSV file selection. If a file is selected,
-// it calls loadQuestions to parse and load the quiz questions.
-// -----------------------------------------------------------------------------
+/**
+ * selectCSVFile - Uses IPC to open a native file dialog for CSV selection.
+ * If a CSV file is selected, it calls loadQuestions to load the quiz questions.
+ * This function prevents opening a second dialog while one is already active.
+ */
 async function selectCSVFile() {
   if (typeof ipcRenderer !== 'undefined') {
+    // If a dialog is already open, do nothing.
+    if (isDialogOpen) {
+      console.log("A CSV file dialog is already open.");
+      return;
+    }
+    
+    // Mark that the dialog is open.
+    isDialogOpen = true;
     try {
       const filePath = await ipcRenderer.invoke('select-csv-file');
       console.log("Selected CSV file:", filePath);
@@ -212,6 +229,9 @@ async function selectCSVFile() {
       }
     } catch (error) {
       console.error("Error during IPC invocation:", error);
+    } finally {
+      // Reset the flag once the dialog operation is complete.
+      isDialogOpen = false;
     }
   }
 }
