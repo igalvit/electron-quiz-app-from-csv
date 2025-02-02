@@ -1,0 +1,42 @@
+{
+    "name": "electron-quiz-app-from-csv",
+    "version": "1.0.0",
+    "description": "A quiz app built with Electron that loads questions from a CSV file.",
+    "main": "main.js",
+    "scripts": {
+        "start": "electron .",
+        "test": "mocha",
+        "pack": "electron-builder --dir",
+        "dist": "electron-builder"
+    },
+    "build": {
+        "appId": "es.igalvit.electronquizappfromcsv",
+        "productName": "Electron Quiz App from CSV",
+        "files": [
+            "**/*"
+        ],
+        "directories": {
+            "buildResources": "build"
+        },
+        "win": {
+            "target": "nsis"
+        },
+        "mac": {
+            "target": "dmg"
+        },
+        "linux": {
+            "target": "AppImage"
+        }
+    },
+    "devDependencies": {
+        "chai": "^5.1.2",
+        "electron": "^25.0.0",
+        "electron-builder": "^25.1.8",
+        "jsdom": "^26.0.0",
+        "jsdom-global": "^3.0.2",
+        "mocha": "^11.1.0"
+    },
+    "dependencies": {
+        "csv-parser": "^3.0.0"
+    }
+}
