@@ -59,4 +59,4 @@ spec/fixtures/logo.png
 
 # nyc
 
-.nyc_output/*
+.nyc_output/
