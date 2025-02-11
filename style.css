@@ -118,12 +118,30 @@ body {
     }
   }
 
-/* Question counter */
-#counter {
-  font-size: 1.2rem;
+/* Container for both counters */
+#counterContainer {
   text-align: center;
+  font-size: 1.2rem;
+  color: #555;
   margin: 10px 0;
+}
+
+/* The total counter (current question / total questions) will be centered. */
+#counter {
+  flex: 1;
+  text-align: center;
+  font-size: 1.2rem;
   color: #555;
 }
+
+/* The score (correct/incorrect counters) is aligned to the right. */
+#score {
+  flex: 1;
+  text-align: right;
+  font-size: 1.2rem;
+  color: #555;
+}
+
+
 
   

@@ -1,67 +1,84 @@
 // renderer.js
 //
-// This module handles the main logic for the Electron Quiz App's renderer process.
-// It is responsible for:
-// - Parsing a CSV file to load quiz questions.
-// - Displaying the current question and its options in the DOM.
-// - Checking the user's answer and providing visual feedback.
-// - Handling IPC communication with the main process for selecting a CSV file.
+// This module handles the main logic for the Electron Quiz App from CSV's renderer process.
+// It performs the following tasks:
+//   - Parses a CSV file to load quiz questions.
+//   - Displays the current question and its options in the DOM.
+//   - Checks the user's answer and provides visual feedback.
+//   - Tracks the score (correct and incorrect answers) and updates a combined counter display.
+//   - Handles IPC communication with the main process for selecting a CSV file.
+//   - Prevents multiple CSV file dialogs from opening concurrently.
 
 // -----------------------------------------------------------------------------
 // Import Node.js modules.
 // -----------------------------------------------------------------------------
-const fs = require('fs');             // File system module to read CSV files.
+const fs = require('fs');             // File system module used to read CSV files.
 const path = require('path');         // Module for handling file paths.
-const csv = require('csv-parser');    // CSV parsing library to parse CSV file contents.
+const csv = require('csv-parser');    // Library for parsing CSV file contents.
 
 // -----------------------------------------------------------------------------
-// Import ipcRenderer for IPC communication with the main process.
+// Import ipcRenderer from Electron for IPC communication.
 // -----------------------------------------------------------------------------
 const { ipcRenderer } = require('electron');
 
 // -----------------------------------------------------------------------------
-// Module-level variables to store quiz data.
+// Module-level variables for storing quiz data and score.
 // -----------------------------------------------------------------------------
-let questions = [];                   // Array to hold all loaded quiz questions.  
-                                    // (This array is exported so that tests can access and update it.)
+let questions = [];                   // Array to hold all loaded quiz questions.
+// Exported so that tests and other modules can access/update it.
 let currentQuestionIndex = 0;         // Index of the currently displayed question.
 
+let correctCount = 0;                 // Counter for correct answers.
+let incorrectCount = 0;               // Counter for incorrect answers.
+
 // -----------------------------------------------------------------------------
-// Constant for mapping answer indices to letters (e.g., 0 -> 'A', 1 -> 'B', etc.).
+// Constant for mapping answer indices to letters.
+// For example, index 0 maps to 'A', index 1 to 'B', etc.
 // -----------------------------------------------------------------------------
 const letters = ['A', 'B', 'C', 'D'];
 
 // -----------------------------------------------------------------------------
+// State Object
+//
+// We wrap the dialog flag in an object so that we export a live reference.
+// This allows external modules/tests to see changes to the flag.
+// -----------------------------------------------------------------------------
+const state = {
+  isDialogOpen: false
+};
+
+// -----------------------------------------------------------------------------
 // Function: loadQuestions
 //
-// Parses a CSV file and populates the questions array with quiz questions.
-// The CSV file should have rows in the following format (without headers):
-// "Question,Option1,Option2,Option3,Option4,CorrectAnswer"
+// This function parses a CSV file to load quiz questions.
+// Expected CSV row format (without headers):
+//    Question,Option1,Option2,Option3,Option4,CorrectAnswer
 //
-// Instead of reassigning the questions array, we clear its contents using splice,
-// so that the exported array reference remains the same.
+// The function clears the existing questions (using splice, so the exported array remains valid),
+// resets the score counters, and updates the combined counter display.
+// It returns a Promise that resolves with the updated questions array once CSV parsing completes.
 //
-// This function returns a Promise that resolves when CSV parsing is complete.
-//
-// @param {string} csvPath - Absolute path to the CSV file.
-// @returns {Promise} - Resolves with the updated questions array.
-// -----------------------------------------------------------------------------
+// @param {string} csvPath - The absolute path to the CSV file.
+// @returns {Promise} - A promise that resolves with the questions array.
 function loadQuestions(csvPath) {
   return new Promise((resolve, reject) => {
-    // Clear the existing questions array without reassigning the variable.
+    // Clear existing questions and reset current question index.
     questions.splice(0, questions.length);
-    currentQuestionIndex = 0;  // Reset the current question index.
+    currentQuestionIndex = 0;
+    // Reset score counters.
+    correctCount = 0;
+    incorrectCount = 0;
+    updateCounter(); // Update combined counter display.
 
-    // Define the expected CSV headers.
+    // Define expected headers and valid answer letters.
     const headers = ['questionText', 'option1', 'option2', 'option3', 'option4', 'correctAnswer'];
-    // Define the set of valid answer letters.
     const validAnswers = ['A', 'B', 'C', 'D'];
 
-    // Create a read stream for the CSV file and pipe it through the CSV parser.
+    // Create a read stream for the CSV file and pipe it to the CSV parser.
     fs.createReadStream(csvPath)
       .pipe(csv({ headers, skipLines: 0 }))
       .on('data', (row) => {
-        // Validate that the row contains all required fields.
+        // Check if all required fields are present.
         if (
           !row.questionText ||
           !row.option1 ||
@@ -71,14 +88,14 @@ function loadQuestions(csvPath) {
           !row.correctAnswer
         ) {
           console.error("CSV row missing required fields:", row);
-          return; // Skip this row if validation fails.
+          return; // Skip this row.
         }
-        // Standardize the correct answer to uppercase.
+        // Standardize the correct answer.
         const correct = row.correctAnswer.trim().toUpperCase();
-        // Validate that the correct answer is one of the allowed letters.
+        // Validate the correct answer.
         if (!validAnswers.includes(correct)) {
           console.error("CSV row has invalid correct answer value:", row.correctAnswer);
-          return; // Skip this row if validation fails.
+          return; // Skip this row.
         }
         // Add the valid question to the questions array.
         questions.push({
@@ -93,7 +110,7 @@ function loadQuestions(csvPath) {
         });
       })
       .on('end', () => {
-        // If no questions were loaded, log an error and update the feedback area.
+        // If no valid questions were found, update feedback and resolve.
         if (questions.length === 0) {
           console.error("No valid questions found in CSV file.");
           const feedbackDiv = document.getElementById('feedback');
@@ -103,12 +120,13 @@ function loadQuestions(csvPath) {
           resolve(questions);
           return;
         }
-        // Log a success message and optionally display the first question.
         console.log("CSV file processed successfully with", questions.length, "valid questions.");
+        // Display the first question.
         displayQuestion(currentQuestionIndex);
         resolve(questions);
       })
       .on('error', (err) => {
+        // Log and reject the promise if an error occurs.
         console.error("Error reading CSV file:", err);
         reject(err);
       });
@@ -118,9 +136,9 @@ function loadQuestions(csvPath) {
 // -----------------------------------------------------------------------------
 // Function: displayQuestion
 //
-// Renders the current quiz question and its options into the DOM.
-// It clears previous content and then creates the question text and answer buttons.
-// Each answer button gets an event listener to handle answer selection.
+// Renders the current quiz question and its answer options into the DOM.
+// It clears previous content and then creates the question text and buttons for each answer.
+// It also updates the combined counter display by calling updateCounter().
 // 
 // @param {number} index - The index of the question to display.
 // -----------------------------------------------------------------------------
@@ -130,44 +148,60 @@ function displayQuestion(index) {
   const optionsDiv = document.getElementById('options');
   const feedbackDiv = document.getElementById('feedback');
 
-  // Clear any previous content.
+  // Clear any existing content.
   questionDiv.innerHTML = '';
   optionsDiv.innerHTML = '';
   feedbackDiv.innerHTML = '';
 
-  // Validate the index.
+  // If the provided index is out of bounds, do nothing.
   if (index < 0 || index >= questions.length) return;
   const question = questions[index];
-  // Render the question text.
+  // Display the question text.
   questionDiv.innerHTML = `<h2>${question.questionText}</h2>`;
 
-  // Update the counter element with the current question number and total questions.
+  // Update the combined counter.
+  updateCounter();
+
+  // (Optional) Update a separate counter element if present.
   const counterDiv = document.getElementById("counter");
   if (counterDiv) {
     counterDiv.innerHTML = `${currentQuestionIndex + 1} / ${questions.length}`;
   }
 
-  // Create buttons for each answer option.
+  // Create a button for each answer option.
   question.options.forEach((option, i) => {
     const btn = document.createElement('button');
     btn.classList.add('option-button');
-    btn.dataset.letter = letters[i]; // Set the answer letter (A, B, C, or D).
-    btn.innerText = `${letters[i]}) ${option}`; // Display the letter and option text.
-    // Attach an event listener: when the button is clicked, check the answer.
+    btn.dataset.letter = letters[i];
+    btn.innerText = `${letters[i]}) ${option}`;
+    // Add an event listener to check the answer when the button is clicked.
     btn.addEventListener('click', () => {
       checkAnswer(letters[i], question.correctAnswer);
     });
-    // Add the button to the options container.
     optionsDiv.appendChild(btn);
   });
 }
 
 // -----------------------------------------------------------------------------
+// Function: updateCounter
+//
+// Updates the combined counter display in the DOM.
+// The counter shows the current question number, total questions,
+// and the score in the format: "Current: X | Total: Y -- Correct: Z | Incorrect: W".
+// -----------------------------------------------------------------------------
+function updateCounter() {
+  const counterContainer = document.getElementById("counterContainer");
+  if (counterContainer) {
+    counterContainer.innerHTML = `Current: ${currentQuestionIndex + 1} | Total: ${questions.length} -- Correct: ${correctCount} | Incorrect: ${incorrectCount}`;
+  }
+}
+
+// -----------------------------------------------------------------------------
 // Function: checkAnswer
 //
-// Compares the user's selected answer with the correct answer,
-// disables further input (by disabling all option buttons),
-// and provides visual feedback by changing the button colors and updating the feedback text.
+// Checks whether the user's selected answer is correct.
+// It disables all answer buttons, updates their background colors,
+// increments the appropriate score counter, updates feedback, and then updates the combined counter.
 // 
 // @param {string} selected - The letter of the selected answer.
 // @param {string} correct - The letter of the correct answer.
@@ -177,50 +211,61 @@ function checkAnswer(selected, correct) {
   const feedbackDiv = document.getElementById('feedback');
   const buttons = document.querySelectorAll('.option-button');
 
-  // Disable all answer buttons and set the background colors.
+  // Disable all buttons and apply appropriate styles.
   buttons.forEach(btn => {
     btn.disabled = true;
-    // Highlight the correct answer in lightgreen.
     if (btn.dataset.letter === correct) {
       btn.style.backgroundColor = 'lightgreen';
     }
-    // If the selected answer is incorrect, highlight it in lightcoral.
     if (btn.dataset.letter === selected && selected !== correct) {
       btn.style.backgroundColor = 'lightcoral';
     }
   });
 
-  // Update the feedback area with the result.
+  // Update score counters and provide feedback.
   if (selected === correct) {
+    correctCount++;
     feedbackDiv.innerHTML = '<p style="color: green;">Correct!</p>';
   } else {
-    // Determine the index of the correct answer and get its text.
+    incorrectCount++;
     const correctIndex = letters.indexOf(correct);
     const correctText = questions[currentQuestionIndex].options[correctIndex];
     feedbackDiv.innerHTML = `<p style="color: red;">Incorrect. The correct answer is: ${correct}) ${correctText}</p>`;
   }
+  // Update the combined counter.
+  updateCounter();
 }
-/**
- * Flag to track whether a file dialog is already open.
- * This prevents opening multiple dialogs concurrently.
- */
+
+// -----------------------------------------------------------------------------
+// Variable: isDialogOpen (exported as part of state)
+//
+// This flag tracks whether a CSV file dialog is currently open.
+// It prevents multiple dialogs from being opened concurrently.
+// -----------------------------------------------------------------------------
 let isDialogOpen = false;
 
-/**
- * selectCSVFile - Uses IPC to open a native file dialog for CSV selection.
- * If a CSV file is selected, it calls loadQuestions to load the quiz questions.
- * This function prevents opening a second dialog while one is already active.
- */
+// We export the flag as part of the state object so that it remains a live reference.
+const stateObj = {
+  isDialogOpen
+};
+
+// -----------------------------------------------------------------------------
+// Function: selectCSVFile
+//
+// Opens a CSV file dialog using IPC. If a file is selected, it loads quiz questions
+// by calling loadQuestions with the selected file path.
+// It prevents multiple dialogs from opening by checking the isDialogOpen flag.
+// -----------------------------------------------------------------------------
 async function selectCSVFile() {
   if (typeof ipcRenderer !== 'undefined') {
     // If a dialog is already open, do nothing.
-    if (isDialogOpen) {
+    if (stateObj.isDialogOpen) {
       console.log("A CSV file dialog is already open.");
       return;
     }
     
-    // Mark that the dialog is open.
-    isDialogOpen = true;
+    // Mark the dialog as open.
+    stateObj.isDialogOpen = true;
     try {
       const filePath = await ipcRenderer.invoke('select-csv-file');
       console.log("Selected CSV file:", filePath);
@@ -230,8 +275,8 @@ async function selectCSVFile() {
     } catch (error) {
       console.error("Error during IPC invocation:", error);
     } finally {
-      // Reset the flag once the dialog operation is complete.
-      isDialogOpen = false;
+      // Reset the dialog flag.
+      stateObj.isDialogOpen = false;
     }
   }
 }
@@ -239,17 +284,15 @@ async function selectCSVFile() {
 // -----------------------------------------------------------------------------
 // Function: initialize
 //
-// Attaches event listeners to the UI elements once the DOM content is fully loaded.
+// Attaches event listeners to UI elements once the DOM content is loaded.
 // This includes the CSV selection button and navigation buttons.
 // -----------------------------------------------------------------------------
 function initialize() {
   if (document) {
-    // Attach the CSV selection event listener.
     const selectCsvBtn = document.getElementById('selectCsvBtn');
     if (selectCsvBtn) {
       selectCsvBtn.addEventListener('click', selectCSVFile);
     }
-    // Attach the Previous button event listener.
     const prevBtn = document.getElementById('prevBtn');
     if (prevBtn) {
       prevBtn.addEventListener('click', () => {
@@ -259,7 +302,6 @@ function initialize() {
         }
       });
     }
-    // Attach the Next button event listener.
     const nextBtn = document.getElementById('nextBtn');
     if (nextBtn) {
       nextBtn.addEventListener('click', () => {
@@ -273,19 +315,31 @@ function initialize() {
 }
 
 // -----------------------------------------------------------------------------
-// Initialize the application once the DOM is ready.
+// DOMContentLoaded Listener
+//
+// When running in a browser, initialize the app after the DOM content has loaded.
 // -----------------------------------------------------------------------------
 if (typeof window !== 'undefined' && document) {
   window.addEventListener('DOMContentLoaded', initialize);
 }
 
 // -----------------------------------------------------------------------------
+// Function: resetScore
+//
+// Resets the correct and incorrect score counters to zero and updates the combined counter.
+// This is useful when starting a new quiz session.
+// -----------------------------------------------------------------------------
+function resetScore() {
+  correctCount = 0;
+  incorrectCount = 0;
+  updateCounter();
+}
+
+// -----------------------------------------------------------------------------
 // Module Exports
 //
-// Export functions and module-level variables so they can be accessed by other
-// modules and used in testing. Note that we export the questions array without
-// reassigning it later, so that tests that hold a reference to this array
-// always see the current contents.
+// Export functions and variables for use by other modules and for testing.
+// We export the questions array (without reassigning it) so that external modules see its current state.
 // -----------------------------------------------------------------------------
 if (typeof module !== 'undefined') {
   module.exports = {
@@ -293,7 +347,11 @@ if (typeof module !== 'undefined') {
     displayQuestion,
     loadQuestions,
     initialize,
-    questions,            // Export the questions array.
-    currentQuestionIndex  // Export the current question index.
+    resetScore,
+    selectCSVFile,
+    updateCounter,    // Export updateCounter for testing purposes.
+    questions,
+    currentQuestionIndex,
+    state: stateObj   // Export the state object so that tests can access state.isDialogOpen.
   };
 }
