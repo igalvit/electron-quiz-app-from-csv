@@ -1,10 +1,20 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <!-- 
+         Metadata and External Resource Links 
+         --------------------------------------
+         - Sets the character encoding to UTF-8.
+         - Specifies the title of the application.
+         - Preconnects to Google Fonts to improve performance.
+         - Imports the "Roboto" font from Google Fonts.
+         - Links to the external CSS file (style.css) that styles the app.
+    -->
     <meta charset="UTF-8" />
     <title>Electron Quiz App from CSV</title>
-    <!-- Link to Google Font: Roboto -->
+    <!-- Preconnect to Google Fonts for faster font loading -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <!-- Link to Google Fonts: Roboto with multiple font weights -->
     <link
       href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap"
       rel="stylesheet"
@@ -13,31 +23,80 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <!-- 
+         Main Container 
+         --------------
+         This div with class "container" wraps all the content of the quiz application.
+         It is styled to center and constrain the app content.
+    -->
     <div class="container">
-      <!-- Quiz content container -->
+      <!-- 
+           Quiz Content Container 
+           -----------------------
+           Contains the question display, combined counter, and answer options.
+      -->
       <div id="quiz-container">
+        <!-- 
+             Question Display Area 
+             ----------------------
+             This element will dynamically display the current quiz question.
+        -->
         <div id="question"></div>
-        <!-- Combined counter container -->
+        <!-- 
+             Combined Counter Container 
+             ---------------------------
+             Displays information such as the current question number, total questions,
+             and the current score (correct/incorrect counts).
+        -->
         <div id="counterContainer"></div>
+        <!-- 
+             Options Container 
+             -----------------
+             This element will be populated dynamically with buttons for each answer option.
+        -->
         <div id="options"></div>
       </div>
-      <!-- Navigation buttons -->
-      <div id="navigation">
+      <!-- 
+           Control Container for Navigation and File Controls 
+           ----------------------------------------------------
+           This section contains the navigation buttons and the group filter dropdown.
+           The controls included are:
+             - Previous button: Navigate to the previous question.
+             - Group Filter Listbox: Filter questions by group.
+             - Select CSV File button: Open a file dialog to load questions.
+             - Next button: Navigate to the next question.
+      -->
+      <div id="controlContainer">
+        <!-- Previous Button -->
         <button id="prevBtn">Previous</button>
+        <!-- 
+             Group Filter Dropdown 
+             ---------------------
+             A select element that will be populated with unique group names from the CSV.
+             Users can select a group to filter the quiz questions.
+        -->
+        <select id="groupSelect"></select>
+        <!-- 
+             Select CSV File Button 
+             ----------------------
+             Clicking this button opens a file dialog (via IPC) to select and load a CSV file containing quiz questions.
+        -->
+        <button id="selectCsvBtn">Select CSV File</button>
+        <!-- Next Button -->
         <button id="nextBtn">Next</button>
       </div>
-      <!-- Feedback area -->
+      <!-- 
+           Feedback Area 
+           -------------
+           Displays any feedback messages, such as error messages, from the application.
+      -->
       <div id="feedback"></div>
-      <!-- Container for Group Filter and CSV File selection -->
-      <div id="csvAndGroupContainer">
-        <div id="groupFilterContainer">
-          <label for="groupSelect">Filter by Group:</label>
-          <select id="groupSelect"></select>
-        </div>
-        <button id="selectCsvBtn">Select CSV File</button>
-      </div>
     </div>
-
+    <!-- 
+         Script Link 
+         -----------
+         Loads the renderer.js file, which contains the main application logic for the quiz app.
+    -->
     <script src="renderer.js"></script>
   </body>
 </html>
