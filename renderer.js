@@ -24,10 +24,9 @@ const { ipcRenderer } = require('electron');
 // -----------------------------------------------------------------------------
 // Module-level variables for storing quiz data and score.
 // -----------------------------------------------------------------------------
-let questions = [];                   // Array to hold all loaded quiz questions.
-// Exported so that tests and other modules can access/update it.
+let questions = [];                   // Array to hold the currently filtered quiz questions.
+let allQuestions = [];                // Array to hold all loaded quiz questions (for filtering).
 let currentQuestionIndex = 0;         // Index of the currently displayed question.
-
 let correctCount = 0;                 // Counter for correct answers.
 let incorrectCount = 0;               // Counter for incorrect answers.
 
@@ -52,26 +51,24 @@ const state = {
 //
 // This function parses a CSV file to load quiz questions.
 // Expected CSV row format (without headers):
-//    Question,Option1,Option2,Option3,Option4,CorrectAnswer
+//    questionText,option1,option2,option3,option4,correctAnswer,group
 //
-// The function clears the existing questions (using splice, so the exported array remains valid),
-// resets the score counters, and updates the combined counter display.
-// It returns a Promise that resolves with the updated questions array once CSV parsing completes.
-//
-// @param {string} csvPath - The absolute path to the CSV file.
-// @returns {Promise} - A promise that resolves with the questions array.
+// The function clears the existing questions, resets the score counters, and updates the combined counter display.
+// It returns a Promise that resolves with the questions array once CSV parsing completes.
+// -----------------------------------------------------------------------------
 function loadQuestions(csvPath) {
   return new Promise((resolve, reject) => {
     // Clear existing questions and reset current question index.
     questions.splice(0, questions.length);
+    allQuestions = [];
     currentQuestionIndex = 0;
     // Reset score counters.
     correctCount = 0;
     incorrectCount = 0;
     updateCounter(); // Update combined counter display.
 
-    // Define expected headers and valid answer letters.
-    const headers = ['questionText', 'option1', 'option2', 'option3', 'option4', 'correctAnswer'];
+    // Define expected headers (note the added 'group' column) and valid answer letters.
+    const headers = ['questionText', 'option1', 'option2', 'option3', 'option4', 'correctAnswer', 'group'];
     const validAnswers = ['A', 'B', 'C', 'D'];
 
     // Create a read stream for the CSV file and pipe it to the CSV parser.
@@ -98,6 +95,7 @@ function loadQuestions(csvPath) {
           return; // Skip this row.
         }
         // Add the valid question to the questions array.
+        // Use the 'group' column if provided, or default to "All".
         questions.push({
           questionText: row.questionText.trim(),
           options: [
@@ -106,11 +104,11 @@ function loadQuestions(csvPath) {
             row.option3.trim(),
             row.option4.trim()
           ],
-          correctAnswer: correct
+          correctAnswer: correct,
+          group: row.group ? row.group.trim() : "All"
         });
       })
       .on('end', () => {
-        // If no valid questions were found, update feedback and resolve.
         if (questions.length === 0) {
           console.error("No valid questions found in CSV file.");
           const feedbackDiv = document.getElementById('feedback');
@@ -121,16 +119,69 @@ function loadQuestions(csvPath) {
           return;
         }
         console.log("CSV file processed successfully with", questions.length, "valid questions.");
+        // Save a copy of all questions for filtering.
+        allQuestions = questions.slice();
+        // Populate the group filter dropdown.
+        populateGroupDropdown(allQuestions);
         // Display the first question.
         displayQuestion(currentQuestionIndex);
         resolve(questions);
       })
       .on('error', (err) => {
-        // Log and reject the promise if an error occurs.
         console.error("Error reading CSV file:", err);
         reject(err);
       });
   });
+}
+
+// -----------------------------------------------------------------------------
+// Function: populateGroupDropdown
+//
+// Populates the group <select> element with unique group values from the loaded questions.
+// When the user selects a group, the questions array is filtered accordingly and the quiz resets.
+// -----------------------------------------------------------------------------
+function populateGroupDropdown(questionsArray) {
+  if (!document) return;
+  const groupSelect = document.getElementById('groupSelect');
+  if (!groupSelect) return;
+
+  // Clear existing options.
+  groupSelect.innerHTML = '';
+  // Add the default "All" option.
+  const allOption = document.createElement('option');
+  allOption.value = 'All';
+  allOption.textContent = 'All';
+  groupSelect.appendChild(allOption);
+
+  // Collect unique groups from the questions.
+  const uniqueGroups = new Set();
+  questionsArray.forEach(q => {
+    if (q.group) {
+      uniqueGroups.add(q.group);
+    }
+  });
+
+  // Add each unique group as an option.
+  uniqueGroups.forEach(groupName => {
+    const opt = document.createElement('option');
+    opt.value = groupName;
+    opt.textContent = groupName;
+    groupSelect.appendChild(opt);
+  });
+
+  // Add an event listener to filter questions when a group is selected.
+  groupSelect.addEventListener('change', function() {
+    const selectedGroup = groupSelect.value;
+    if (selectedGroup === 'All') {
+      questions.splice(0, questions.length, ...allQuestions);
+    } else {
+      questions.splice(0, questions.length, ...allQuestions.filter(q => q.group === selectedGroup));
+    }
+    currentQuestionIndex = 0;
+    resetScore();
+    displayQuestion(currentQuestionIndex);
+  });
+
 }
 
 // -----------------------------------------------------------------------------
@@ -243,7 +294,6 @@ function checkAnswer(selected, correct) {
 // It prevents multiple dialogs from being opened concurrently.
 // -----------------------------------------------------------------------------
 let isDialogOpen = false;
-
 // We export the flag as part of the state object so that it remains a live reference.
 const stateObj = {
   isDialogOpen

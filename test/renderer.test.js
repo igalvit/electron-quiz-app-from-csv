@@ -16,6 +16,8 @@
 //     rejection, and that a CSV file with no valid rows is handled.
 //   - selectCSVFile: Ensures that if a file dialog is already open, a new one is not opened.
 //     We simulate an open dialog using a fake promise that resolves after a delay.
+//   - Group Filtering: Tests that the group dropdown is populated with unique groups from the CSV
+//     and that selecting a group filters the questions accordingly.
 //   - Edge Cases: Tests additional branches such as missing DOM elements or undefined ipcRenderer.
 
 const { expect } = require("chai");       // Chai's expect for assertions.
@@ -41,7 +43,9 @@ const {
   resetScore,
   selectCSVFile,
   updateCounter,
-  state
+  state,
+  questions,
+  currentQuestionIndex
 } = renderer;
 
 describe("Electron Quiz App from CSV - Additional Tests", function () {
@@ -68,6 +72,11 @@ describe("Electron Quiz App from CSV - Additional Tests", function () {
           <button id="selectCsvBtn">Select CSV File</button>
           <button id="prevBtn">Previous</button>
           <button id="nextBtn">Next</button>
+          <!-- Group filter dropdown container -->
+          <div id="groupFilterContainer">
+            <label for="groupSelect">Filter by Group:</label>
+            <select id="groupSelect"></select>
+          </div>
         </body>
       </html>
     `);
@@ -205,8 +214,8 @@ describe("Electron Quiz App from CSV - Additional Tests", function () {
     it("should load questions from a valid CSV file", async function () {
       this.timeout(5000);
       const tmpFile = path.join(__dirname, "temp.csv");
-      const csvContent = `What is 2+2?,1,2,3,4,B
-What is the capital of Italy?,Rome,Paris,Berlin,Madrid,A
+      const csvContent = `What is 2+2?,1,2,3,4,B,Math
+What is the capital of Italy?,Rome,Paris,Berlin,Madrid,A,Geography
 `;
       fs.writeFileSync(tmpFile, csvContent, "utf8");
       renderer.questions.splice(0, renderer.questions.length);
@@ -214,8 +223,10 @@ What is the capital of Italy?,Rome,Paris,Berlin,Madrid,A
       expect(renderer.questions.length).to.equal(2);
       expect(renderer.questions[0].questionText).to.equal("What is 2+2?");
       expect(renderer.questions[0].correctAnswer).to.equal("B");
+      expect(renderer.questions[0].group).to.equal("Math");
       expect(renderer.questions[1].questionText).to.equal("What is the capital of Italy?");
       expect(renderer.questions[1].correctAnswer).to.equal("A");
+      expect(renderer.questions[1].group).to.equal("Geography");
       const counterContainer = document.getElementById("counterContainer");
       expect(counterContainer.innerHTML).to.contain("Current: 1");
       expect(counterContainer.innerHTML).to.contain("Total: 2");
@@ -227,7 +238,7 @@ What is the capital of Italy?,Rome,Paris,Berlin,Madrid,A
     it("should ignore CSV rows missing required fields", async function () {
       this.timeout(5000);
       const tmpFile = path.join(__dirname, "temp_missing.csv");
-      const csvContent = `What is 2+2?,1,2,3,4,B
+      const csvContent = `What is 2+2?,1,2,3,4,B,Math
 Incomplete row,OnlyOneField
 `;
       fs.writeFileSync(tmpFile, csvContent, "utf8");
@@ -241,8 +252,8 @@ Incomplete row,OnlyOneField
     it("should ignore CSV rows with invalid correct answer values", async function () {
       this.timeout(5000);
       const tmpFile = path.join(__dirname, "temp_invalid.csv");
-      const csvContent = `What is 2+2?,1,2,3,4,B
-Invalid answer row,Val1,Val2,Val3,Val4,Z
+      const csvContent = `What is 2+2?,1,2,3,4,B,Math
+Invalid answer row,Val1,Val2,Val3,Val4,Z,Science
 `;
       fs.writeFileSync(tmpFile, csvContent, "utf8");
       renderer.questions.splice(0, renderer.questions.length);
@@ -332,6 +343,67 @@ Another invalid row,Missing,Fields
       // Restore the original fakeIpcRenderer.invoke and loadQuestions.
       fakeIpcRenderer.invoke = originalInvoke;
       renderer.loadQuestions = originalLoadQuestions;
+    });
+  });
+
+  // -------------------------------
+  // Test Suite: Group Filtering
+  // -------------------------------
+  describe("Group Filtering", function () {
+    it("should populate the group dropdown with unique groups from the CSV", async function () {
+      this.timeout(5000);
+      const tmpFile = path.join(__dirname, "temp_groups.csv");
+      const csvContent = `Question 1,Opt1,Opt2,Opt3,Opt4,A,Group1
+Question 2,Opt1,Opt2,Opt3,Opt4,B,Group2
+Question 3,Opt1,Opt2,Opt3,Opt4,C,Group1
+`;
+      fs.writeFileSync(tmpFile, csvContent, "utf8");
+      renderer.questions.splice(0, renderer.questions.length);
+      // Ensure that groupSelect element exists in the DOM.
+      let groupSelect = document.getElementById("groupSelect");
+      if (!groupSelect) {
+        groupSelect = document.createElement("select");
+        groupSelect.id = "groupSelect";
+        document.body.appendChild(groupSelect);
+      }
+      await loadQuestions(tmpFile);
+      // After loadQuestions, the group dropdown should be populated with options.
+      groupSelect = document.getElementById("groupSelect");
+      const options = Array.from(groupSelect.options).map(opt => opt.value);
+      expect(options).to.include("All");
+      expect(options).to.include("Group1");
+      expect(options).to.include("Group2");
+      fs.unlinkSync(tmpFile);
+    });
+    
+    it("should filter questions based on the selected group", async function () {
+      this.timeout(5000);
+      const tmpFile = path.join(__dirname, "temp_groups_filter.csv");
+      const csvContent = `Question 1,Opt1,Opt2,Opt3,Opt4,A,Group1
+Question 2,Opt1,Opt2,Opt3,Opt4,B,Group2
+Question 3,Opt1,Opt2,Opt3,Opt4,C,Group1
+Question 4,Opt1,Opt2,Opt3,Opt4,D,Group3
+`;
+      fs.writeFileSync(tmpFile, csvContent, "utf8");
+      renderer.questions.splice(0, renderer.questions.length);
+      // Ensure that groupSelect element exists in the DOM.
+      let groupSelect = document.getElementById("groupSelect");
+      if (!groupSelect) {
+        groupSelect = document.createElement("select");
+        groupSelect.id = "groupSelect";
+        document.body.appendChild(groupSelect);
+      }
+      await loadQuestions(tmpFile);
+      // Simulate selecting "Group1" in the group dropdown.
+      groupSelect.value = "Group1";
+      const event = new dom.window.Event("change");
+      groupSelect.dispatchEvent(event);
+      // After filtering, questions array should only contain questions from Group1.
+      expect(renderer.questions.length).to.equal(2);
+      renderer.questions.forEach(q => {
+        expect(q.group).to.equal("Group1");
+      });
+      fs.unlinkSync(tmpFile);
     });
   });
 
