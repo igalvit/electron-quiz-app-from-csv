@@ -75,7 +75,7 @@ function loadQuestions(csvPath) {
 
     // Create a read stream for the CSV file and pipe it through the CSV parser.
     fs.createReadStream(csvPath)
-      .pipe(csv({ headers, skipLines: 0 }))
+      .pipe(csv({ headers, skipLines: 0, separator: ';', trim: true }))
       .on('data', (row) => {
         // Verify that all required fields are present.
         if (
