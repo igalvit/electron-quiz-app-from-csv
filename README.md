@@ -114,6 +114,31 @@ This command creates a packaged version of your app (installer or executable) in
 
 ---
 
+## Troubleshooting Windows Build Issues
+
+If you encounter errors related to symbolic link creation or code signing (such as `A required privilege is not held by the client`), try the following:
+
+1. **Run as Administrator:**
+   - Open your terminal as Administrator and run `npm run dist` again. This often resolves symlink permission issues.
+
+2. **Disable Code Signing for Development:**
+   - If you do not need code signing for local builds, add the following to your `package.json` under the `build` section:
+     ```json
+     "win": {
+       "target": "nsis",
+       "sign": false
+     }
+     ```
+   - Then try building again.
+
+3. **Manual Test:**
+   - You can still test your app by running the unpacked build directly:
+     ```
+     dist\win-unpacked\Electron Quiz App from CSV.exe
+     ```
+
+---
+
 ## Project Structure
 
 ```
