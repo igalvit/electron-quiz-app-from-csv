@@ -14,12 +14,16 @@
  * The tests cover:
  *   - checkAnswer: Verifies that correct and incorrect answers update the floating feedback message,
  *     the styles of the answer buttons, and the combined counter (displaying current question, total questions,
- *     correct and incorrect counts).
+ *     correct and incorrect counts). Tests that userAnswered flag is set correctly.
+ *   - Timer Functionality: Tests that the timer starts with the first question, continues until all 
+ *     questions in a group are answered, and properly stops when complete.
+ *   - Modern UI: Ensures the new card-style scorer UI elements are properly rendered with the
+ *     expected layout and content.
  *   - displayQuestion: Ensures that the question text and its answer options are rendered properly,
  *     and that the combined counter is updated.
  *   - loadQuestions: Checks that CSV files are parsed correctly, that rows missing required fields or
  *     with invalid correct answers are ignored, that errors during file reading cause the promise to reject,
- *     and that a CSV file with no valid rows is handled gracefully.
+ *     that a CSV file with no valid rows is handled gracefully, and that userAnswered flags are cleared.
  *   - selectCSVFile: Ensures that if a CSV file dialog is already open, a new one is not opened.
  *                    We simulate this using a fake promise.
  *   - Group Filtering: Tests that the group dropdown is populated with unique groups from the CSV
@@ -77,26 +81,19 @@ describe("Electron Quiz App from CSV - Additional Tests", function () {
       <!DOCTYPE html>
       <html>
         <body>
-          <!-- Feedback area (not used for floating messages since those are appended directly to the body) -->
           <div id="feedback"></div>
-          <!-- Container for the quiz question text -->
           <div id="question"></div>
-          <!-- Combined counter container in the format:
-               "Current: X | Total: Y -- Correct: Z | Incorrect: W" -->
           <div id="counterContainer"></div>
-          <!-- (Optional) Separate counter element -->
           <div id="counter"></div>
-          <!-- Container for answer option buttons -->
           <div id="options"></div>
-          <!-- Buttons for CSV selection and navigation -->
           <button id="selectCsvBtn">Select CSV File</button>
           <button id="prevBtn">Previous</button>
           <button id="nextBtn">Next</button>
-          <!-- Group filter dropdown container -->
           <div id="groupFilterContainer">
             <label for="groupSelect">Filter by Group:</label>
             <select id="groupSelect"></select>
           </div>
+          <div id="quiz-container"></div>
         </body>
       </html>
     `);
@@ -104,23 +101,49 @@ describe("Electron Quiz App from CSV - Additional Tests", function () {
     // Set global.document and global.window so that the renderer module can access the DOM.
     global.document = document;
     global.window = dom.window;
+    // Patch global checkAnswer for DOM event handlers
+    // This ensures that event handlers in the DOM use the exported renderer.checkAnswer function,
+    // maintaining consistent context between test environment and application
+    global.checkAnswer = renderer.checkAnswer;
     // Reset score counters before each test.
     resetScore();
+    // Reset userAnswered for all questions
+    // This ensures each test starts with fresh question state tracking
+    if (renderer.questions) renderer.questions.forEach(q => delete q.userAnswered);
   });
 
   // ---------------------------------------------------------------------------
   // Cleanup: Close the simulated DOM after each test.
   // ---------------------------------------------------------------------------
   afterEach(function () {
+    // Ensure any timers are stopped
+    // This is critical to prevent hanging tests due to active timer intervals
+    if (renderer.stopTimer) renderer.stopTimer();
     dom.window.close();
+  });
+
+  // Global cleanup after all tests complete
+  after(function() {
+    // Ensure all timers are cleared to allow Node.js process to exit cleanly
+    if (renderer.stopTimer) renderer.stopTimer();
+    // Clear any other potential hanging timers
+    // This technique generates a new timeout ID and then clears all IDs up to that number,
+    // ensuring no timers are left running
+    const pendingTimers = global.setTimeout(() => {}, 0);
+    for (let i = 1; i < pendingTimers; i++) {
+      global.clearTimeout(i);
+      global.clearInterval(i);
+    }
+    global.clearTimeout(pendingTimers);
   });
 
   // ---------------------------------------------------------------------------
   // Test Suite: checkAnswer
   // ---------------------------------------------------------------------------
   describe("checkAnswer", function () {
-    it("should display correct floating feedback for a correct answer and update the combined counter", function () {
+    it("should display correct floating feedback for a correct answer and update the combined counter, and set userAnswered", function () {
       // Setup: Create dummy answer option buttons in the #options container.
+      // Tests the new modern UI and the userAnswered flag.
       const optionsDiv = document.getElementById("options");
       optionsDiv.innerHTML = `
         <button class="option-button" data-letter="A">A) Option 1</button>
@@ -128,8 +151,7 @@ describe("Electron Quiz App from CSV - Additional Tests", function () {
         <button class="option-button" data-letter="C">C) Option 3</button>
         <button class="option-button" data-letter="D">D) Option 4</button>
       `;
-      // Prepare a dummy question for testing.
-      renderer.questions.splice(0, renderer.questions.length); // Clear existing questions.
+      renderer.questions.splice(0, renderer.questions.length);
       renderer.questions.push({
         questionText: "Dummy question",
         options: ["Option 1", "Option 2", "Option 3", "Option 4"],
@@ -146,8 +168,8 @@ describe("Electron Quiz App from CSV - Additional Tests", function () {
       const correctBtn = document.querySelector('button[data-letter="A"]');
       expect(correctBtn.style.backgroundColor).to.equal("lightgreen");
       // Assertion: Verify that the combined counter displays the correct updated values.
-      const counterContainer = document.getElementById("counterContainer");
       // Modern UI: check for score-card and values
+      const counterContainer = document.getElementById("counterContainer");
       expect(counterContainer.querySelector('.score-card')).to.exist;
       expect(counterContainer.innerHTML).to.contain('Current');
       expect(counterContainer.innerHTML).to.contain('Total');
@@ -157,6 +179,8 @@ describe("Electron Quiz App from CSV - Additional Tests", function () {
       expect(counterContainer.innerHTML).to.contain('>1<'); // Total
       expect(counterContainer.innerHTML).to.contain('>1<'); // Correct
       expect(counterContainer.innerHTML).to.contain('>0<'); // Incorrect
+      // Assertion: Verify that the userAnswered flag is set to true for the answered question.
+      expect(renderer.questions[0].userAnswered).to.be.true;
     });
 
     it("should display correct floating feedback for an incorrect answer and update the combined counter", function () {
@@ -198,6 +222,38 @@ describe("Electron Quiz App from CSV - Additional Tests", function () {
       expect(counterContainer.innerHTML).to.contain('>0<'); // Correct
       expect(counterContainer.innerHTML).to.contain('>1<'); // Incorrect
     });
+
+    it("should stop the timer only when all questions are answered", function () {
+      // This test verifies timer functionality:
+      // 1. Timer starts and runs while questions remain unanswered
+      // 2. Timer only stops when ALL questions in the current set have been answered
+      // 3. userAnswered flags track which questions have been completed
+      
+      // Setup: 2 questions, answer only one, timer should not stop
+      renderer.questions.splice(0, renderer.questions.length);
+      renderer.questions.push({ questionText: "Q1", options: ["1","2","3","4"], correctAnswer: "A" });
+      renderer.questions.push({ questionText: "Q2", options: ["1","2","3","4"], correctAnswer: "A" });
+      renderer.currentQuestionIndex = 0;
+      // Simulate DOM for both questions
+      const optionsDiv = document.getElementById("options");
+      optionsDiv.innerHTML = `<button class="option-button" data-letter="A">A) 1</button>`;
+      // Start timer using exported function
+      renderer.startTimer();
+      renderer.checkAnswer("A", "A");
+      expect(renderer.questions[0].userAnswered).to.be.true;
+      expect(renderer.timerInterval).to.not.be.null;
+      // Now answer the second question
+      renderer.currentQuestionIndex = 1;
+      renderer.displayQuestion(1); // Ensure DOM is set up for Q2
+      // Simulate clicking the answer button for 'A' on Q2
+      // This simulates a real user interaction and ensures the DOM event handler sets userAnswered properly
+      const btnQ2 = document.querySelector('button[data-letter="A"]');
+      btnQ2.click();
+      // Verify userAnswered is set for the second question
+      expect(renderer.questions[1].userAnswered).to.be.true;
+      // Verify timer stops when all questions are answered
+      expect(renderer.timerInterval).to.be.null;
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -227,6 +283,7 @@ describe("Electron Quiz App from CSV - Additional Tests", function () {
       expect(buttons[2].innerText).to.contain("C) Rome");
       expect(buttons[3].innerText).to.contain("D) Madrid");
       // Assertion: Verify that the combined counter is updated correctly.
+      // This tests the new modern UI score card with sections for Current, Total, Correct, and Incorrect
       const counterContainer = document.getElementById("counterContainer");
       expect(counterContainer.querySelector('.score-card')).to.exist;
       expect(counterContainer.innerHTML).to.contain('Current');
@@ -278,6 +335,7 @@ What is the capital of Italy?,Rome,Paris,Berlin,Madrid,A,Geography
       expect(renderer.questions[1].correctAnswer).to.equal("A");
       expect(renderer.questions[1].group).to.equal("Geography");
       // Verify that the combined counter displays the expected values.
+      // Tests the modern UI score card with the correct numbers
       const counterContainer = document.getElementById("counterContainer");
       expect(counterContainer.querySelector('.score-card')).to.exist;
       expect(counterContainer.innerHTML).to.contain('Current');
@@ -357,6 +415,21 @@ Another invalid row,Missing,Fields
       // Verify that an appropriate error message is displayed in the feedback element.
       const feedbackText = document.getElementById("feedback").innerHTML;
       expect(feedbackText).to.contain("No valid questions found");
+      fs.unlinkSync(tmpFile);
+    });
+    
+    it("should clear userAnswered flags when loading new questions", async function () {
+      this.timeout(5000);
+      const tmpFile = path.join(__dirname, "temp.csv");
+      const csvContent = `What is 2+2?,1,2,3,4,B,Math\nWhat is the capital of Italy?,Rome,Paris,Berlin,Madrid,A,Geography\n`;
+      fs.writeFileSync(tmpFile, csvContent, "utf8");
+      renderer.questions.splice(0, renderer.questions.length);
+      // Set a flag to simulate a previously answered question
+      // This tests that new questions have clean userAnswered state for proper timer functionality
+      renderer.questions.push({ questionText: "Old", options: ["1","2","3","4"], correctAnswer: "A", userAnswered: true });
+      await loadQuestions(tmpFile);
+      // Assertion: All userAnswered flags should be cleared for the new questions.
+      expect(renderer.questions.every(q => !q.userAnswered)).to.be.true;
       fs.unlinkSync(tmpFile);
     });
   });

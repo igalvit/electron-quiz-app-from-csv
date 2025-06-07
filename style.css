@@ -351,3 +351,68 @@ h2 {
     font-size: 0.9rem;
   }
 }
+
+/* 
+   ================================================
+   Timer Display Styles
+   ================================================
+*/
+
+/* 
+   Styles for the timer display above the quiz.
+   - Flexbox layout for centering content.
+   - Modern font styling and colors.
+   - Light background with rounded corners and subtle shadow.
+   - Responsive adjustments for smaller screens.
+*/
+.timer-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 1.2rem;
+  color: #444;
+  background: #f8fafc;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+  padding: 10px 24px;
+  margin: 18px auto 12px auto;
+  max-width: 300px;
+  font-weight: 500;
+}
+
+/* 
+   Label styles within the timer display.
+   - Slightly smaller font size and muted color.
+*/
+.timer-label {
+  margin-right: 8px;
+  color: #888;
+  font-size: 1rem;
+}
+
+/* 
+   Value styles within the timer display.
+   - Monospace font for a digital clock effect.
+   - Larger font size and primary color for emphasis.
+   - Letter spacing for a more spaced-out appearance.
+*/
+.timer-value {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 1.3rem;
+  color: #007bff;
+  letter-spacing: 1px;
+}
+
+/* 
+   Responsive adjustments for the timer display on smaller screens.
+   - Reduces font size and padding for compactness.
+*/
+@media (max-width: 600px) {
+  .timer-container {
+    font-size: 1rem;
+    padding: 6px 10px;
+  }
+  .timer-value {
+    font-size: 1.1rem;
+  }
+}

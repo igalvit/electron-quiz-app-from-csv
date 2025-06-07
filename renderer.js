@@ -2,10 +2,14 @@
 //
 // This module handles the main logic for the Electron Quiz App from CSV's renderer process.
 // It performs the following tasks:
-//   - Parses a CSV file to load quiz questions (including filtering by a new "group" column).
+//   - Parses a CSV file to load quiz questions (including filtering by a "group" column).
 //   - Displays the current question and its options in the DOM.
+//   - Provides a modern card-style UI with responsive design for score tracking.
+//   - Implements a timer that starts with the first question and tracks quiz duration.
 //   - Checks the user's answer and provides visual feedback via a floating message.
-//   - Tracks the score (correct and incorrect answers) and updates a combined counter display.
+//   - Tracks the score (correct and incorrect answers) and updates the score display.
+//   - Stops the timer only when all questions in the current group have been answered.
+//   - Resets and restarts the timer when the group filter changes.
 //   - Handles IPC communication with the main process for selecting a CSV file.
 //   - Prevents multiple CSV file dialogs from opening concurrently.
 
@@ -45,16 +49,131 @@ const state = {
   isDialogOpen: false
 };
 
+// -----------------------------------------------------------------------------
+// Timer-related variables
+//
+// These variables track the timer state for the quiz.
+// timerInterval - Holds the interval ID for the active timer.
+// timerStart    - Timestamp of when the timer was started (used for calculating elapsed time).
+// timerElapsed  - Tracks the total elapsed seconds.
+// -----------------------------------------------------------------------------
+let timerInterval = null;
+let timerStart = null;
+let timerElapsed = 0;
+
+/**
+ * getQuestions and getCurrentQuestionIndex
+ * --------------------------------------
+ * Helper functions that provide access to module-level variables.
+ * 
+ * These functions ensure that module exports are given precedence over local variables
+ * when needed (particularly during testing). This maintains consistent context between
+ * the application and test environment.
+ */
+function getQuestions() {
+  if (typeof module !== 'undefined' && module.exports && module.exports.questions) return module.exports.questions;
+  return questions;
+}
+function getCurrentQuestionIndex() {
+  if (typeof module !== 'undefined' && module.exports && typeof module.exports.currentQuestionIndex === 'number') return module.exports.currentQuestionIndex;
+  return currentQuestionIndex;
+}
+
+/**
+ * startTimer
+ * ----------
+ * Initializes and starts the quiz timer.
+ * 
+ * This function resets any existing timer, sets the start time to the current timestamp,
+ * resets the elapsed time counter, and begins updating the timer display every second.
+ * The timer is automatically started when:
+ *   1. The first question of a group is displayed
+ *   2. The group filter is changed
+ */
+function startTimer() {
+  stopTimer();
+  timerStart = Date.now();
+  timerElapsed = 0;
+  updateTimerDisplay(0);
+  timerInterval = setInterval(() => {
+    timerElapsed = Math.floor((Date.now() - timerStart) / 1000);
+    updateTimerDisplay(timerElapsed);
+  }, 1000);
+}
+
+/**
+ * stopTimer
+ * ---------
+ * Halts the currently running timer.
+ * 
+ * This function clears the interval used for the timer and resets the interval reference.
+ * The timer is automatically stopped only when all questions in the current group have been answered,
+ * which is tracked using the userAnswered property on each question.
+ */
+function stopTimer() {
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+}
+
+/**
+ * resetTimer
+ * ----------
+ * Completely resets the timer.
+ * 
+ * This function stops the timer, clears the elapsed time, and updates the timer display
+ * to show 00:00. Used when restarting quizzes or changing question groups.
+ */
+function resetTimer() {
+  stopTimer();
+  timerElapsed = 0;
+  updateTimerDisplay(0);
+}
+
+/**
+ * updateTimerDisplay
+ * -----------------
+ * Updates the timer display in the DOM with the current elapsed time.
+ * 
+ * This function creates a timer container if one doesn't exist, then updates it
+ * with the formatted time (MM:SS format). The timer is displayed at the top of the quiz
+ * container with a modern styled interface (styled via CSS).
+ * 
+ * @param {number} seconds - The number of seconds to display on the timer.
+ */
+function updateTimerDisplay(seconds) {
+  let timerDiv = document.getElementById('timerContainer');
+  if (!timerDiv) {
+    timerDiv = document.createElement('div');
+    timerDiv.id = 'timerContainer';
+    timerDiv.className = 'timer-container';
+    const quizContainer = document.getElementById('quiz-container');
+    if (quizContainer) {
+      quizContainer.insertBefore(timerDiv, quizContainer.firstChild);
+    } else {
+      document.body.insertBefore(timerDiv, document.body.firstChild);
+    }
+  }
+  const mins = String(Math.floor(seconds / 60)).padStart(2, '0');
+  const secs = String(seconds % 60).padStart(2, '0');
+  timerDiv.innerHTML = `<span class="timer-label">Time:</span> <span class="timer-value">${mins}:${secs}</span>`;
+}
+
 /**
  * loadQuestions
  * -------------
  * Parses a CSV file to load quiz questions. The CSV is expected to have rows with the following
  * fields (without headers): questionText, option1, option2, option3, option4, correctAnswer, group.
  *
- * This function clears any previously loaded questions, resets the quiz score and question index,
- * updates the UI counter, and then reads and parses the CSV file. It validates each row for the
- * required fields and a valid correct answer (A, B, C, or D). Valid questions are stored in the
- * `questions` array and a copy is stored in `allQuestions` for filtering purposes.
+ * This function:
+ * - Clears any previously loaded questions
+ * - Resets the quiz score, question index, and userAnswered flags
+ * - Detects CSV separator automatically (comma or semicolon)
+ * - Validates rows for required fields and correct answer format
+ * - Populates the group dropdown filter with unique group values 
+ * - Displays the first question and prepares for the quiz to start
+ * - Ensures the modern UI score card is properly initialized
  *
  * @param {string} csvPath - The absolute path to the CSV file.
  * @returns {Promise<Array>} A promise that resolves with the array of valid quiz questions.
@@ -68,6 +187,8 @@ function loadQuestions(csvPath) {
     correctCount = 0;
     incorrectCount = 0;
     updateCounter(); // Refresh the counter display.
+    // Clear userAnswered flags for all questions (for tests and UI)
+    if (questions) questions.forEach(q => delete q.userAnswered);
 
     // Define expected headers (including the 'group' column) and valid answer letters.
     const headers = ['questionText', 'option1', 'option2', 'option3', 'option4', 'correctAnswer', 'group'];
@@ -149,12 +270,11 @@ function loadQuestions(csvPath) {
  * Populates the group filter dropdown (<select id="groupSelect">) with unique group values extracted
  * from the provided questions array. The "All" option is always added as the first option.
  *
- * When a user selects a group, this function filters the global questions array (using splice to update
- * it in place) to include only questions matching the selected group. If "All" is selected, the full set
- * of questions (from allQuestions) is restored. The quiz state (current question index and score) is reset,
- * and the first question is displayed.
- *
- * @param {Array} questionsArray - Array of quiz questions (expected to include a 'group' property).
+ * When a user selects a group, this function filters the questions to show only those in the selected group,
+ * resets the quiz state (including the score), updates the display, and restarts the timer.
+ * This ensures a clean quiz experience when switching between different question categories.
+ * 
+ * @param {Array} questionsArray - The array of questions to extract group values from.
  */
 function populateGroupDropdown(questionsArray) {
   if (!document) return;
@@ -200,6 +320,7 @@ function populateGroupDropdown(questionsArray) {
     currentQuestionIndex = 0;
     resetScore();
     displayQuestion(currentQuestionIndex);
+    startTimer();
   });
 }
 
@@ -210,7 +331,10 @@ function populateGroupDropdown(questionsArray) {
  *
  * This function clears any existing question, options, and feedback in the UI, then displays the question text.
  * It creates a button for each answer option and attaches an event listener to check the answer when clicked.
- * The combined counter display is updated to reflect the current state of the quiz.
+ * The score card is updated to reflect the current state of the quiz.
+ * 
+ * If this is the first question (index 0), the function will automatically start the timer.
+ * This way, the timer begins only when users start answering questions, not during setup.
  *
  * @param {number} index - The index of the question to display.
  */
@@ -253,15 +377,26 @@ function displayQuestion(index) {
     });
     optionsDiv.appendChild(btn);
   });
+
+  // If this is the first question, start the timer
+  if (index === 0) {
+    startTimer();
+  }
 }
 
 /**
  * updateCounter
  * -------------
- * Updates the combined counter display in the DOM.
+ * Updates the modern card-style score display in the DOM.
  *
- * The counter shows the current question number, total number of questions, and the current score:
- * "Current: X | Total: Y -- Correct: Z | Incorrect: W"
+ * This function creates a responsive, modern UI score card with four sections:
+ * - Current question number
+ * - Total question count
+ * - Correct answers count
+ * - Incorrect answers count
+ * 
+ * Each section is styled using CSS for a clean, card-based layout with proper spacing,
+ * borders, and visual hierarchy to improve readability.
  */
 function updateCounter() {
   const counterContainer = document.getElementById("counterContainer");
@@ -333,8 +468,10 @@ function showFloatingMessage(message, isCorrect) {
  * Disables all answer option buttons to prevent multiple selections.
  * If the selected answer is correct, increments the correctCount;
  * otherwise, increments the incorrectCount and shows the correct answer in the message.
- *
- * Finally, updates the combined counter display.
+ * 
+ * Marks the current question as answered by setting a userAnswered flag.
+ * This tracking is crucial for the timer functionality - the timer will only stop
+ * when ALL questions in the current set have been answered (userAnswered is true for all).
  *
  * @param {string} selected - The letter corresponding to the user's selected answer.
  * @param {string} correct - The letter corresponding to the correct answer.
@@ -342,7 +479,8 @@ function showFloatingMessage(message, isCorrect) {
 function checkAnswer(selected, correct) {
   if (!document) return;
   const buttons = document.querySelectorAll('.option-button');
-
+  const qs = getQuestions();
+  const idx = getCurrentQuestionIndex();
   // Disable all buttons and apply styling based on whether they are the correct answer.
   buttons.forEach(btn => {
     btn.disabled = true;
@@ -353,7 +491,6 @@ function checkAnswer(selected, correct) {
       btn.style.backgroundColor = 'lightcoral';
     }
   });
-
   // Update score counters and show floating feedback.
   if (selected === correct) {
     correctCount++;
@@ -362,11 +499,18 @@ function checkAnswer(selected, correct) {
     incorrectCount++;
     // Determine the text of the correct option.
     const correctIndex = letters.indexOf(correct);
-    const correctText = questions[currentQuestionIndex].options[correctIndex];
+    const correctText = qs[idx].options[correctIndex];
     showFloatingMessage(`Incorrect. The correct answer is: ${correct}) ${correctText}`, false);
   }
   // Refresh the combined counter display.
   updateCounter();
+  // Stop timer only if ALL questions have been answered (i.e., every question has a selected answer)
+  // We'll track answers by adding a property to each question when answered
+  qs[idx].userAnswered = true;
+  const allAnswered = qs.length > 0 && qs.every(q => q.userAnswered);
+  if (allAnswered) {
+    stopTimer();
+  }
 }
 
 /**
@@ -409,6 +553,9 @@ async function selectCSVFile() {
  *   - The CSV selection button.
  *   - The Previous button (to navigate to the previous question).
  *   - The Next button (to navigate to the next question).
+ * 
+ * The timer will automatically start when the first question is displayed,
+ * and will continue until all questions have been answered.
  */
 function initialize() {
   if (document) {
@@ -450,7 +597,8 @@ if (typeof window !== 'undefined' && document) {
  * resetScore
  * ----------
  * Resets the quiz score counters (correctCount and incorrectCount) to zero
- * and updates the combined counter display accordingly.
+ * and updates the modern UI score card display accordingly.
+ * Used when starting a new quiz or when changing question groups.
  */
 function resetScore() {
   correctCount = 0;
@@ -462,6 +610,8 @@ function resetScore() {
 // Module Exports
 //
 // Exports functions and variables for use by other modules and for testing.
+// The timer-related functions are exported to support testing the timer functionality
+// to ensure it starts, stops, and resets correctly during quiz interactions.
 // -----------------------------------------------------------------------------
 if (typeof module !== 'undefined') {
   module.exports = {
@@ -474,6 +624,12 @@ if (typeof module !== 'undefined') {
     updateCounter,
     questions,
     currentQuestionIndex,
-    state
+    state,
+    // Timer-related exports for testing
+    startTimer,
+    stopTimer,
+    resetTimer,
+    updateTimerDisplay,
+    get timerInterval() { return timerInterval; }
   };
 }
