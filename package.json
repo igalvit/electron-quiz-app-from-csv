@@ -1,6 +1,6 @@
 {
     "name": "electron-quiz-app-from-csv",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "description": "A quiz app built with Electron that loads questions from a CSV file.",
     "main": "main.js",
     "scripts": {

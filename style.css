@@ -239,9 +239,101 @@ h2 {
 
 /* 
    ================================================
-   Responsive Adjustments for Smaller Screens
+   Scorer UI Card Styles
    ================================================
 */
+
+/* 
+   Card-style container for the scorer UI.
+   - Flexbox layout for horizontal alignment of score sections.
+   - Light background, rounded corners, and subtle shadow for a card-like appearance.
+   - Responsive design adjustments for smaller screens.
+*/
+.score-card {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 32px;
+  background: #f8fafc;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+  padding: 18px 32px;
+  margin: 18px auto 24px auto;
+  max-width: 600px;
+  font-size: 1.1rem;
+}
+
+/* 
+   Individual score section within the score card.
+   - Stacks label and value vertically.
+   - Centers content and ensures a minimum width for consistency.
+*/
+.score-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 80px;
+}
+
+/* 
+   Label for score metrics (e.g., Correct, Incorrect).
+   - Smaller font size, muted color, and slight letter spacing for a subtle appearance.
+*/
+.score-label {
+  font-size: 0.95rem;
+  color: #888;
+  margin-bottom: 4px;
+  letter-spacing: 0.5px;
+}
+
+/* 
+   Value display for scores.
+   - Larger font size, bold weight, and distinct color for emphasis.
+   - Light background with rounded padding for a pill-like appearance.
+*/
+.score-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #222;
+  background: #e9ecef;
+  border-radius: 6px;
+  padding: 2px 12px;
+  min-width: 36px;
+  text-align: center;
+}
+
+/* 
+   Highlighted styles for correct and incorrect scores.
+   - Uses green shades for correct scores and red shades for incorrect scores.
+*/
+.correct-score {
+  color: #28a745;
+  background: #e6f9ed;
+}
+.incorrect-score {
+  color: #dc3545;
+  background: #fae6e8;
+}
+
+/* 
+   Responsive adjustments for the score card on smaller screens.
+   - Stacks score sections vertically and reduces padding.
+   - Ensures text remains readable and elements are not cramped.
+*/
+@media (max-width: 600px) {
+  .score-card {
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 8px;
+  }
+  .score-section {
+    min-width: 0;
+  }
+  .score-value {
+    font-size: 1.1rem;
+    padding: 2px 8px;
+  }
+}
 
 /* 
    Responsive adjustments:

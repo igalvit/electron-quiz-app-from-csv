@@ -74,8 +74,17 @@ function loadQuestions(csvPath) {
     const validAnswers = ['A', 'B', 'C', 'D'];
 
     // Create a read stream for the CSV file and pipe it through the CSV parser.
+    // Detect separator: if the file contains semicolons, use ';', else use ','
+    let fileContent;
+    try {
+      fileContent = fs.readFileSync(csvPath, 'utf8');
+    } catch (err) {
+      reject(err);
+      return;
+    }
+    let separator = fileContent.includes(';') ? ';' : ',';
     fs.createReadStream(csvPath)
-      .pipe(csv({ headers, skipLines: 0, separator: ';', trim: true }))
+      .pipe(csv({ headers, skipLines: 0, separator, trim: true }))
       .on('data', (row) => {
         // Verify that all required fields are present.
         if (
@@ -257,7 +266,26 @@ function displayQuestion(index) {
 function updateCounter() {
   const counterContainer = document.getElementById("counterContainer");
   if (counterContainer) {
-    counterContainer.innerHTML = `Current: ${currentQuestionIndex + 1} | Total: ${questions.length} -- Correct: ${correctCount} | Incorrect: ${incorrectCount}`;
+    counterContainer.innerHTML = `
+      <div class="score-card">
+        <div class="score-section">
+          <span class="score-label">Current</span>
+          <span class="score-value">${currentQuestionIndex + 1}</span>
+        </div>
+        <div class="score-section">
+          <span class="score-label">Total</span>
+          <span class="score-value">${questions.length}</span>
+        </div>
+        <div class="score-section">
+          <span class="score-label">Correct</span>
+          <span class="score-value correct-score">${correctCount}</span>
+        </div>
+        <div class="score-section">
+          <span class="score-label">Incorrect</span>
+          <span class="score-value incorrect-score">${incorrectCount}</span>
+        </div>
+      </div>
+    `;
   }
 }
 

@@ -147,10 +147,16 @@ describe("Electron Quiz App from CSV - Additional Tests", function () {
       expect(correctBtn.style.backgroundColor).to.equal("lightgreen");
       // Assertion: Verify that the combined counter displays the correct updated values.
       const counterContainer = document.getElementById("counterContainer");
-      expect(counterContainer.innerHTML).to.contain("Current: 1");
-      expect(counterContainer.innerHTML).to.contain("Total: 1");
-      expect(counterContainer.innerHTML).to.contain("Correct: 1");
-      expect(counterContainer.innerHTML).to.contain("Incorrect: 0");
+      // Modern UI: check for score-card and values
+      expect(counterContainer.querySelector('.score-card')).to.exist;
+      expect(counterContainer.innerHTML).to.contain('Current');
+      expect(counterContainer.innerHTML).to.contain('Total');
+      expect(counterContainer.innerHTML).to.contain('Correct');
+      expect(counterContainer.innerHTML).to.contain('Incorrect');
+      expect(counterContainer.innerHTML).to.contain('>1<'); // Current
+      expect(counterContainer.innerHTML).to.contain('>1<'); // Total
+      expect(counterContainer.innerHTML).to.contain('>1<'); // Correct
+      expect(counterContainer.innerHTML).to.contain('>0<'); // Incorrect
     });
 
     it("should display correct floating feedback for an incorrect answer and update the combined counter", function () {
@@ -184,8 +190,13 @@ describe("Electron Quiz App from CSV - Additional Tests", function () {
       expect(correctBtn.style.backgroundColor).to.equal("lightgreen");
       // Assertion: Verify that the combined counter reflects 0 correct and 1 incorrect answer.
       const counterContainer = document.getElementById("counterContainer");
-      expect(counterContainer.innerHTML).to.contain("Correct: 0");
-      expect(counterContainer.innerHTML).to.contain("Incorrect: 1");
+      expect(counterContainer.querySelector('.score-card')).to.exist;
+      expect(counterContainer.innerHTML).to.contain('Current');
+      expect(counterContainer.innerHTML).to.contain('Total');
+      expect(counterContainer.innerHTML).to.contain('Correct');
+      expect(counterContainer.innerHTML).to.contain('Incorrect');
+      expect(counterContainer.innerHTML).to.contain('>0<'); // Correct
+      expect(counterContainer.innerHTML).to.contain('>1<'); // Incorrect
     });
   });
 
@@ -217,10 +228,15 @@ describe("Electron Quiz App from CSV - Additional Tests", function () {
       expect(buttons[3].innerText).to.contain("D) Madrid");
       // Assertion: Verify that the combined counter is updated correctly.
       const counterContainer = document.getElementById("counterContainer");
-      expect(counterContainer.innerHTML).to.contain("Current: 1");
-      expect(counterContainer.innerHTML).to.contain("Total: 1");
-      expect(counterContainer.innerHTML).to.contain("Correct: 0");
-      expect(counterContainer.innerHTML).to.contain("Incorrect: 0");
+      expect(counterContainer.querySelector('.score-card')).to.exist;
+      expect(counterContainer.innerHTML).to.contain('Current');
+      expect(counterContainer.innerHTML).to.contain('Total');
+      expect(counterContainer.innerHTML).to.contain('Correct');
+      expect(counterContainer.innerHTML).to.contain('Incorrect');
+      expect(counterContainer.innerHTML).to.contain('>1<'); // Current
+      expect(counterContainer.innerHTML).to.contain('>1<'); // Total
+      expect(counterContainer.innerHTML).to.contain('>0<'); // Correct
+      expect(counterContainer.innerHTML).to.contain('>0<'); // Incorrect
     });
     
     it("should do nothing if the index is out of bounds", function () {
@@ -263,10 +279,15 @@ What is the capital of Italy?,Rome,Paris,Berlin,Madrid,A,Geography
       expect(renderer.questions[1].group).to.equal("Geography");
       // Verify that the combined counter displays the expected values.
       const counterContainer = document.getElementById("counterContainer");
-      expect(counterContainer.innerHTML).to.contain("Current: 1");
-      expect(counterContainer.innerHTML).to.contain("Total: 2");
-      expect(counterContainer.innerHTML).to.contain("Correct: 0");
-      expect(counterContainer.innerHTML).to.contain("Incorrect: 0");
+      expect(counterContainer.querySelector('.score-card')).to.exist;
+      expect(counterContainer.innerHTML).to.contain('Current');
+      expect(counterContainer.innerHTML).to.contain('Total');
+      expect(counterContainer.innerHTML).to.contain('Correct');
+      expect(counterContainer.innerHTML).to.contain('Incorrect');
+      expect(counterContainer.innerHTML).to.contain('>1<'); // Current
+      expect(counterContainer.innerHTML).to.contain('>2<'); // Total
+      expect(counterContainer.innerHTML).to.contain('>0<'); // Correct
+      expect(counterContainer.innerHTML).to.contain('>0<'); // Incorrect
       // Cleanup: Remove the temporary file.
       fs.unlinkSync(tmpFile);
     });
@@ -305,15 +326,9 @@ Invalid answer row,Val1,Val2,Val3,Val4,Z,Science
     
     it("should reject if an error occurs while reading the CSV file", async function () {
       this.timeout(5000);
-      // Simulate an error by overriding fs.createReadStream to emit an error.
-      const originalCreateReadStream = fs.createReadStream;
-      fs.createReadStream = () => {
-        const { Readable } = require("stream");
-        const stream = new Readable();
-        stream._read = () => {};
-        stream.emit("error", new Error("Test error"));
-        return stream;
-      };
+      // Simulate an error by overriding fs.readFileSync to throw an error.
+      const originalReadFileSync = fs.readFileSync;
+      fs.readFileSync = () => { throw new Error("Test error"); };
       try {
         await loadQuestions("dummy/path");
         throw new Error("Expected loadQuestions to reject");
@@ -322,8 +337,8 @@ Invalid answer row,Val1,Val2,Val3,Val4,Z,Science
         expect(err).to.be.an("error");
         expect(err.message).to.equal("Test error");
       } finally {
-        // Restore the original createReadStream function.
-        fs.createReadStream = originalCreateReadStream;
+        // Restore the original readFileSync function.
+        fs.readFileSync = originalReadFileSync;
       }
     });
     
